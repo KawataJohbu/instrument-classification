@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>Orchestra Live Classification Report</title>
+  <style>
+    :root {
+      --ink: #17212b;
+      --muted: #607080;
+      --paper: #fffaf0;
+      --card: rgba(255, 255, 255, 0.94);
+      --line: #dfd4bd;
+      --accent: #c96f3a;
+      --accent2: #2f7f78;
+      --accent3: #425f9c;
+      --soft: #f4ead6;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      color: var(--ink);
+      font-family: "Yu Gothic", "Meiryo", "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(201, 111, 58, 0.18), transparent 34rem),
+        radial-gradient(circle at 85% 12%, rgba(47, 127, 120, 0.18), transparent 28rem),
+        linear-gradient(180deg, #fff8e9 0%, #edf4f2 100%);
+    }
+
+    main {
+      width: min(1180px, calc(100% - 36px));
+      margin: 0 auto;
+      padding: 34px 0 72px;
+    }
+
+    h1, h2, h3 { margin: 0; }
+
+    h1 {
+      font-size: clamp(30px, 4vw, 52px);
+      letter-spacing: -0.04em;
+    }
+
+    h2 {
+      font-size: 24px;
+      margin-bottom: 14px;
+    }
+
+    p {
+      color: var(--muted);
+      line-height: 1.75;
+    }
+
+    code {
+      background: #f5eee0;
+      border: 1px solid #e4d8bf;
+      border-radius: 8px;
+      padding: 2px 6px;
+      font-family: Consolas, "Courier New", monospace;
+      color: #673d21;
+    }
+
+    pre {
+      overflow-x: auto;
+      background: #18212a;
+      color: #f9edd9;
+      border-radius: 18px;
+      padding: 18px;
+      line-height: 1.6;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.35fr) minmax(280px, 0.65fr);
+      gap: 22px;
+      align-items: stretch;
+      margin-bottom: 22px;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 24px;
+      box-shadow: 0 18px 45px rgba(69, 52, 31, 0.09);
+      padding: 24px;
+      margin-top: 20px;
+    }
+
+    .lead {
+      font-size: 17px;
+      max-width: 760px;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      border: 1px solid #dfc9a7;
+      background: #fff5e4;
+      border-radius: 999px;
+      padding: 8px 12px;
+      margin: 10px 8px 0 0;
+      color: #684828;
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .metric {
+      background: linear-gradient(145deg, #fff4df, #edf7f4);
+      border: 1px solid #e1d3bb;
+      border-radius: 18px;
+      padding: 18px;
+    }
+
+    .metric span {
+      display: block;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 30px;
+      margin-top: 8px;
+      letter-spacing: -0.04em;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 18px;
+    }
+
+    .flow {
+      width: 100%;
+      min-height: 220px;
+    }
+
+    .step-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      gap: 14px;
+      margin-top: 16px;
+    }
+
+    .step {
+      background: #fff8eb;
+      border: 1px solid #e8d7bc;
+      border-radius: 18px;
+      padding: 16px;
+    }
+
+    .step b {
+      display: block;
+      margin-bottom: 6px;
+      color: #794b25;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+
+    th, td {
+      border-bottom: 1px solid #ece1cf;
+      padding: 11px 12px;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: #f8ecd9;
+      color: #51381f;
+    }
+
+    .bar-row {
+      display: grid;
+      grid-template-columns: 72px 1fr 44px;
+      gap: 12px;
+      align-items: center;
+      margin: 12px 0;
+      font-size: 14px;
+    }
+
+    .track {
+      height: 16px;
+      background: #efe4d1;
+      border-radius: 999px;
+      overflow: hidden;
+    }
+
+    .fill {
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+    }
+
+    .score-card {
+      background: #17212b;
+      border-radius: 20px;
+      color: white;
+      padding: 18px;
+    }
+
+    .score-line {
+      display: grid;
+      grid-template-columns: 68px 1fr 48px;
+      gap: 10px;
+      align-items: center;
+      margin: 12px 0;
+      font-family: Consolas, "Courier New", monospace;
+    }
+
+    .score-track {
+      height: 12px;
+      background: rgba(255, 255, 255, 0.15);
+      border-radius: 999px;
+      overflow: hidden;
+    }
+
+    .score-fill {
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #ffd166, #2fcdc3);
+    }
+
+    .note {
+      border-left: 5px solid var(--accent);
+      background: #fff7e8;
+      padding: 14px 16px;
+      border-radius: 14px;
+      color: #5d4630;
+    }
+
+    @media (max-width: 760px) {
+      .hero { grid-template-columns: 1fr; }
+      .metrics { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <section class="hero">
+      <div class="card">
+        <h1>Orchestra Live Classification</h1>
+        <p class="lead">
+          <code>trial/orchestra_live.py</code> は、教師データ <code>wavlist/URMP_Sep</code> で学習した分類器を使い、
+          PCマイクから入った音を数秒ごとに録音して、5種類の楽器らしさをリアルタイムに表示するコードです。
+        </p>
+        <span class="pill">Input: microphone</span>
+        <span class="pill">Feature: MFCC + envelope</span>
+        <span class="pill">Model: scikit-learn SVC</span>
+        <span class="pill">Output: 5-class score</span>
+      </div>
+
+      <div class="card">
+        <h2>Current Setup</h2>
+        <div class="metrics">
+          <div class="metric"><span>Target classes</span><strong>5</strong></div>
+          <div class="metric"><span>Live window</span><strong>3.0s</strong></div>
+          <div class="metric"><span>Sample rate</span><strong>44.1k</strong></div>
+          <div class="metric"><span>Default threshold</span><strong>20</strong></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Processing Flow</h2>
+      <svg class="flow" viewBox="0 0 1080 230" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#425f9c"/>
+          </marker>
+          <linearGradient id="boxgrad" x1="0" x2="1">
+            <stop offset="0%" stop-color="#fff3dc"/>
+            <stop offset="100%" stop-color="#e9f5f2"/>
+          </linearGradient>
+        </defs>
+
+        <rect x="20" y="52" width="165" height="78" rx="18" fill="url(#boxgrad)" stroke="#d8c6a8" stroke-width="2"/>
+        <text x="102" y="84" text-anchor="middle" font-size="16" font-weight="700" fill="#17212b">URMP_Sep</text>
+        <text x="102" y="110" text-anchor="middle" font-size="13" fill="#607080">teacher wav files</text>
+
+        <rect x="235" y="52" width="165" height="78" rx="18" fill="url(#boxgrad)" stroke="#d8c6a8" stroke-width="2"/>
+        <text x="318" y="84" text-anchor="middle" font-size="16" font-weight="700" fill="#17212b">Feature Extract</text>
+        <text x="318" y="110" text-anchor="middle" font-size="13" fill="#607080">MFCC + envelope</text>
+
+        <rect x="450" y="52" width="165" height="78" rx="18" fill="url(#boxgrad)" stroke="#d8c6a8" stroke-width="2"/>
+        <text x="533" y="84" text-anchor="middle" font-size="16" font-weight="700" fill="#17212b">SVC Train</text>
+        <text x="533" y="110" text-anchor="middle" font-size="13" fill="#607080">only once at start</text>
+
+        <rect x="665" y="52" width="165" height="78" rx="18" fill="url(#boxgrad)" stroke="#d8c6a8" stroke-width="2"/>
+        <text x="748" y="84" text-anchor="middle" font-size="16" font-weight="700" fill="#17212b">Mic Record</text>
+        <text x="748" y="110" text-anchor="middle" font-size="13" fill="#607080">3 sec loop</text>
+
+        <rect x="880" y="52" width="165" height="78" rx="18" fill="url(#boxgrad)" stroke="#d8c6a8" stroke-width="2"/>
+        <text x="963" y="84" text-anchor="middle" font-size="16" font-weight="700" fill="#17212b">Live Scores</text>
+        <text x="963" y="110" text-anchor="middle" font-size="13" fill="#607080">violin ... horn</text>
+
+        <line x1="185" y1="91" x2="235" y2="91" stroke="#425f9c" stroke-width="3" marker-end="url(#arrow)"/>
+        <line x1="400" y1="91" x2="450" y2="91" stroke="#425f9c" stroke-width="3" marker-end="url(#arrow)"/>
+        <line x1="615" y1="91" x2="665" y2="91" stroke="#425f9c" stroke-width="3" marker-end="url(#arrow)"/>
+        <line x1="830" y1="91" x2="880" y2="91" stroke="#425f9c" stroke-width="3" marker-end="url(#arrow)"/>
+
+        <path d="M 963 144 C 963 198, 748 198, 748 144" fill="none" stroke="#c96f3a" stroke-width="3" stroke-dasharray="8 7" marker-end="url(#arrow)"/>
+        <text x="855" y="210" text-anchor="middle" font-size="14" fill="#794b25">repeat until Ctrl+C</text>
+      </svg>
+    </section>
+
+    <section class="grid">
+      <div class="card">
+        <h2>Training Data Used</h2>
+        <p>
+          ライブ判定でも、学習に使うデータは通常の <code>orchestra.py</code> と同じです。
+          起動時に <code>wavlist/URMP_Sep</code> を読み込み、短いセグメントに分けて特徴量を作ります。
+        </p>
+        <div class="bar-row"><b>violin</b><div class="track"><div class="fill" style="width:100%"></div></div><span>30</span></div>
+        <div class="bar-row"><b>flute</b><div class="track"><div class="fill" style="width:60%"></div></div><span>18</span></div>
+        <div class="bar-row"><b>cello</b><div class="track"><div class="fill" style="width:37%"></div></div><span>11</span></div>
+        <div class="bar-row"><b>oboe</b><div class="track"><div class="fill" style="width:20%"></div></div><span>6</span></div>
+        <div class="bar-row"><b>horn</b><div class="track"><div class="fill" style="width:17%"></div></div><span>5</span></div>
+        <p class="note">
+          データ数はクラスごとに偏りがあります。特に horn と oboe は少ないため、リアルタイム判定で不安定になりやすいです。
+        </p>
+      </div>
+
+      <div class="card">
+        <h2>Feature Vector</h2>
+        <p>
+          1回の録音音声から、合計32個の数値を作って分類器に渡します。
+          MFCCは音色の違いを見るための中心的な特徴量です。
+        </p>
+        <table>
+          <thead>
+            <tr><th>Feature group</th><th>Count</th><th>Meaning</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Envelope</td><td>5</td><td>attack, sustain, tail, peak/mean, time centroid</td></tr>
+            <tr><td>Spectral centroid</td><td>1</td><td>音の明るさ・高周波寄りかどうか</td></tr>
+            <tr><td>MFCC mean</td><td>13</td><td>音色の平均的な形</td></tr>
+            <tr><td>MFCC std</td><td>13</td><td>音色が時間内でどれくらい変化するか</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="grid">
+      <div class="card">
+        <h2>Live Loop</h2>
+        <div class="step-grid">
+          <div class="step"><b>1. Train</b>起動時に教師データからSVCモデルを作ります。</div>
+          <div class="step"><b>2. Record</b>マイクからデフォルト3秒間録音します。</div>
+          <div class="step"><b>3. Skip Silence</b>RMSが低すぎる場合は判定せず次へ進みます。</div>
+          <div class="step"><b>4. Predict</b>録音した音を特徴量化し、5楽器のスコアを表示します。</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Score Example</h2>
+        <p>出力されるスコアは「その区間が各楽器にどれくらい近いか」を相対的に表したものです。</p>
+        <div class="score-card">
+          <div class="score-line"><span>violin</span><div class="score-track"><div class="score-fill" style="width:38%"></div></div><span>38.1</span></div>
+          <div class="score-line"><span>cello</span><div class="score-track"><div class="score-fill" style="width:28%"></div></div><span>28.0</span></div>
+          <div class="score-line"><span>oboe</span><div class="score-track"><div class="score-fill" style="width:20%"></div></div><span>19.5</span></div>
+          <div class="score-line"><span>flute</span><div class="score-track"><div class="score-fill" style="width:8%"></div></div><span>7.7</span></div>
+          <div class="score-line"><span>horn</span><div class="score-track"><div class="score-fill" style="width:7%"></div></div><span>6.7</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Commands</h2>
+      <p>まずマイク一覧を確認します。</p>
+      <pre><code>.\.venv\Scripts\python.exe .\trial\orchestra_live.py --list-devices</code></pre>
+
+      <p>1回だけ録音して判定する場合です。最初の動作確認に向いています。</p>
+      <pre><code>.\.venv\Scripts\python.exe .\trial\orchestra_live.py --once</code></pre>
+
+      <p>継続してリアルタイム判定する場合です。止めるときは <code>Ctrl+C</code> を押します。</p>
+      <pre><code>.\.venv\Scripts\python.exe .\trial\orchestra_live.py</code></pre>
+
+      <p>特定の入力デバイスを使う場合です。</p>
+      <pre><code>.\.venv\Scripts\python.exe .\trial\orchestra_live.py --device 1</code></pre>
+    </section>
+
+    <section class="card">
+      <h2>Important Notes</h2>
+      <table>
+        <thead>
+          <tr><th>Point</th><th>Meaning</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>リアルタイムといっても完全な瞬間判定ではない</td>
+            <td>デフォルトでは3秒録音してから判定するため、約3秒ごとに結果が更新されます。</td>
+          </tr>
+          <tr>
+            <td>マイク音は教師データと条件が違う</td>
+            <td>部屋の反響、PCスピーカー、環境ノイズの影響で、WAVテストより精度が下がることがあります。</td>
+          </tr>
+          <tr>
+            <td><code>--min-rms</code> が小さすぎるとノイズも判定する</td>
+            <td>静かな部屋で勝手に判定される場合は <code>--min-rms 500</code> のように上げます。</td>
+          </tr>
+          <tr>
+            <td><code>--window-seconds</code> は精度と反応速度のトレードオフ</td>
+            <td>長いほど安定しやすく、短いほど反応は速いですが不安定になりやすいです。</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+  </main>
+</body>
+</html>

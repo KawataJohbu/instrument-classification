@@ -1,0 +1,4 @@
+pydub
+scikit-learn
+librosa
+sounddevice
