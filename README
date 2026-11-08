@@ -1,4 +1,4 @@
-**・リアルタイムの計測(3秒間隔で計測)　←orchestra_live.pyを動かします**
+・リアルタイムの計測(3秒間隔で計測)　←orchestra_live.pyを動かします
 
 ターミナルで以下を実行
 1.   .\.venv\Scripts\Activate.ps1
