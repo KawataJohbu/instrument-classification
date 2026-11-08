@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import time
 from pathlib import Path
 from pprint import pformat
@@ -9,10 +10,63 @@ import sounddevice as sd
 
 import orchestra
 
+# コンソール表示
+RESET = "\033[0m"
+RED = "\033[31m"
+GREEN = "\033[32m"
 
 DEFAULT_SAMPLE_RATE = 44100
 DEFAULT_WINDOW_SECONDS = 3.0
-DEFAULT_MIN_RMS = 300.0
+DEFAULT_MIN_RMS = 150.0
+MODEL_CACHE = orchestra.PROJECT_ROOT / "trial" / ".cache" / "orchestra_live.joblib"
+
+
+def load_or_train_model(data_dir: Path, max_seconds: float | None,
+                        segment_seconds: float, retrain: bool = False):
+    import joblib
+    import sklearn
+    import numpy
+
+    data_dir = data_dir.resolve()
+    # Compare metadata without reading the large audio files on every startup.
+    files = []
+    for label in orchestra.CLASS_NAMES:
+        for path in sorted((data_dir / label).glob("*.wav")):
+            stat = path.stat()
+            files.append((str(path.relative_to(data_dir)), stat.st_size, stat.st_mtime_ns))
+    if not files:
+        raise FileNotFoundError(f"No training wav files found in {data_dir}")
+    signature = {
+        "data_dir": str(data_dir), "files": files,
+        "max_seconds": max_seconds, "segment_seconds": segment_seconds,
+        "source": hashlib.sha256(Path(orchestra.__file__).read_bytes()).hexdigest(),
+        "sklearn": sklearn.__version__, "numpy": numpy.__version__,
+        "cache_version": 1,
+    }
+    if MODEL_CACHE.exists() and not retrain:
+        try:
+            cached = joblib.load(MODEL_CACHE)
+            if cached["signature"] == signature:
+                print("Loaded saved model. Skipping training.")
+                return cached["model"]
+            print("Training data or settings changed. Rebuilding model...")
+        except Exception as error:
+            print(f"Could not load saved model ({type(error).__name__}). Rebuilding...")
+
+    print("Loading training data...")
+    train_items = orchestra.load_training_items(
+        data_dir, max_seconds=max_seconds, segment_seconds=segment_seconds,
+    )
+    print(f"Training segments: {len(train_items)}")
+    print("Training sklearn model...")
+    model = orchestra.train_sklearn_model(train_items)
+    try:
+        MODEL_CACHE.parent.mkdir(parents=True, exist_ok=True)
+        joblib.dump({"signature": signature, "model": model}, MODEL_CACHE)
+        print("Saved model for next startup.")
+    except OSError as error:
+        print(f"Could not save model ({type(error).__name__}); continuing.")
+    return model
 
 
 def record_mono_samples(sample_rate: int, seconds: float, device: int | None) -> list[float]:
@@ -37,12 +91,10 @@ def print_ranked_scores(scores: dict[str, float], threshold: float) -> None:
     print("Relative instrument scores")
     for label, score in ranked_scores:
         marker = "*" if score >= threshold else " "
-        print(f"{marker} {label:7}: {score:6.1f} / 100")
-
-    if detected:
-        print("Detected: " + ", ".join(label for label, _score in detected))
-    else:
-        print(f"Detected: none over threshold. Top candidate: {ranked_scores[0][0]}")
+        line = f"{marker} {label:7}: {score:6.1f} / 100"
+        if score >= threshold:
+            line = f"\033[32m{line}\033[0m"
+        print(line)
 
 
 def safe_print(text: object) -> None:
@@ -53,6 +105,10 @@ def safe_print(text: object) -> None:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Classify live microphone audio as violin/cello/flute/oboe/horn."
+    )
+    parser.add_argument(
+        "--retrain", action="store_true",
+        help="Rebuild and save the model even if a saved model is available.",
     )
     parser.add_argument(
         "--data-dir",
@@ -126,15 +182,9 @@ def main() -> None:
         data_dir = (orchestra.PROJECT_ROOT / data_dir).resolve()
 
     max_seconds = orchestra.normalize_max_seconds(args.training_max_seconds)
-    print("Loading training data...")
-    train_items = orchestra.load_training_items(
-        data_dir,
-        max_seconds=max_seconds,
-        segment_seconds=args.segment_seconds,
+    model = load_or_train_model(
+        data_dir, max_seconds, args.segment_seconds, retrain=args.retrain,
     )
-    print(f"Training segments: {len(train_items)}")
-    print("Training sklearn model...")
-    model = orchestra.train_sklearn_model(train_items)
     print("Ready. Press Ctrl+C to stop.")
     print()
 
@@ -147,11 +197,10 @@ def main() -> None:
                 device=args.device,
             )
             rms = orchestra.calculate_rms(samples)
-            print(f"RMS: {rms:.1f}")
+            # print(f"RMS: {rms:.1f}")
 
             if rms < args.min_rms:
-                print("Skipped: input is too quiet.")
-                print()
+                print(f"{RED}スキップ{RESET}")
                 time.sleep(0.2)
                 continue
 
