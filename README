@@ -1,8 +1,8 @@
-**・リアルタイムの計測(3秒間隔で計測)　←orchestra_live.pyを動かします
+**・リアルタイムの計測(3秒間隔で計測)　←orchestra_live.pyを動かします**
 
 ターミナルで以下を実行
 1.   .\.venv\Scripts\Activate.ps1
-2.   .\.venv\Scripts\python.exe .\trial\orchestra_live.py**
+2.   .\.venv\Scripts\python.exe .\trial\orchestra_live.py
 ＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿
 ・実際に計測してみてわかったこと
 高い音が出るとホルンの特徴が強くなる
