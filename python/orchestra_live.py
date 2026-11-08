@@ -18,7 +18,7 @@ GREEN = "\033[32m"
 DEFAULT_SAMPLE_RATE = 44100
 DEFAULT_WINDOW_SECONDS = 3.0
 DEFAULT_MIN_RMS = 150.0
-MODEL_CACHE = orchestra.PROJECT_ROOT / "trial" / ".cache" / "orchestra_live.joblib"
+MODEL_CACHE = Path(__file__).resolve().parent / ".cache" / "orchestra_live.joblib"
 
 
 def load_or_train_model(data_dir: Path, max_seconds: float | None,

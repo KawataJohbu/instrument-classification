@@ -251,7 +251,7 @@
       <div class="card">
         <h1>Orchestra Live Classification</h1>
         <p class="lead">
-          <code>trial/orchestra_live.py</code> は、教師データ <code>wavlist/URMP_Sep</code> で学習した分類器を使い、
+          <code>python/orchestra_live.py</code> は、教師データ <code>wavlist/URMP_Sep</code> で学習した分類器を使い、
           PCマイクから入った音を数秒ごとに録音して、5種類の楽器らしさをリアルタイムに表示するコードです。
         </p>
         <span class="pill">Input: microphone</span>
@@ -378,16 +378,16 @@
     <section class="card">
       <h2>Commands</h2>
       <p>まずマイク一覧を確認します。</p>
-      <pre><code>.\.venv\Scripts\python.exe .\trial\orchestra_live.py --list-devices</code></pre>
+      <pre><code>.\.venv\Scripts\python.exe .\python\orchestra_live.py --list-devices</code></pre>
 
       <p>1回だけ録音して判定する場合です。最初の動作確認に向いています。</p>
-      <pre><code>.\.venv\Scripts\python.exe .\trial\orchestra_live.py --once</code></pre>
+      <pre><code>.\.venv\Scripts\python.exe .\python\orchestra_live.py --once</code></pre>
 
       <p>継続してリアルタイム判定する場合です。止めるときは <code>Ctrl+C</code> を押します。</p>
-      <pre><code>.\.venv\Scripts\python.exe .\trial\orchestra_live.py</code></pre>
+      <pre><code>.\.venv\Scripts\python.exe .\python\orchestra_live.py</code></pre>
 
       <p>特定の入力デバイスを使う場合です。</p>
-      <pre><code>.\.venv\Scripts\python.exe .\trial\orchestra_live.py --device 1</code></pre>
+      <pre><code>.\.venv\Scripts\python.exe .\python\orchestra_live.py --device 1</code></pre>
     </section>
 
     <section class="card">
