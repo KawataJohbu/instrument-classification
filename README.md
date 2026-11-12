@@ -10,7 +10,7 @@ step2   .\.venv\Scripts\python.exe .\python\orchestra_live.py
 
 ・実際に計測してみてわかったこと  
 高い音が出るとホルンの特徴が強くなる  
-オーボエのスコアが全然出てこない⏩️../python/orchestra.pyにあるDEFAULT_MAX_SECONDSを120に変更することで解消できた。
+オーボエのスコアが全然出てこない⏩️../python/orchestra.pyにあるDEFAULT_MAX_SECONDSを120に変更することで解消できた。  
 フルートとヴァイオリンは中音だとしっかり認識できるようになった  
 チェロも認識はできているがヴァイオリンのほうがスコアが大きく出る傾向にある  
 ＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿
