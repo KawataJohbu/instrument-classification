@@ -14,6 +14,17 @@ import tkinter as tk
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT / "python"))
 
+import graph
+from scenes import SCENES
+from PIL import Image, ImageOps, ImageTk
+
+# graph.pyで調整した名前付き関数を、楽器ごとに指定する。
+GRAPH_SHAPES = {
+    "horn": ("cloud1", 130),
+    "flute": ("bubbleL", 55),
+    "cello": ("leaf_front", 115),
+}
+
 INSTRUMENTS = (
     ("violin", "ヴァイオリン", "circle", "#63dbad"),
     ("flute", "フルート", "square", "#69c8ff"),
@@ -51,7 +62,9 @@ def audio_worker(args, events: queue.Queue, stop: threading.Event) -> None:
         )
         while not stop.is_set():
             events.put(("status", f"録音中：{args.window_seconds:g}秒"))
-            samples = live.record_mono_samples(args.sample_rate, args.window_seconds, args.device)
+            started = time.perf_counter()
+            samples, sample_rate = live.record_input(args, stop)
+            recorded = time.perf_counter()
             if stop.is_set():
                 return
             rms = orchestra.calculate_rms(samples)
@@ -60,9 +73,11 @@ def audio_worker(args, events: queue.Queue, stop: threading.Event) -> None:
                 continue
             events.put(("status", "音を解析しています…"))
             features = orchestra.extract_features_from_samples(
-                Path("live_microphone.wav"), samples, args.sample_rate,
+                Path("live_microphone.wav"), samples, sample_rate,
             )
             scores, _ = orchestra.sklearn_file_scores(model, [features])
+            if args.timing:
+                print(f"Capture: {recorded-started:.3f}s; analysis: {time.perf_counter()-recorded:.3f}s", flush=True)
             events.put(("result", (scores, rms, "識別結果を更新しました")))
     except Exception as error:
         if not stop.is_set():
@@ -81,18 +96,41 @@ class InstrumentWindow:
         self.result_text = "まだ判定結果がありません"
         self.rms = None
         self.started = time.monotonic()
+        self.scenes = SCENES
+        self.current_scene = 1
+        self.instruments = INSTRUMENTS
+        self.graph_shapes = GRAPH_SHAPES
+        self.polygon_points = polygon_points
+        self.graph_masks = {}
+        self.graph_photos = []
+        self.graph_revision = None
+        self.graph_errors = set()
         root.title("Orchestra — 楽器の識別アニメーション")
         root.geometry("1050x560")
         root.minsize(760, 480)
         self.canvas = tk.Canvas(root, bg="#101827", highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
+        # プレビューは表示せず、保存時の再読み込みだけを利用する。
+        graph_frame = tk.Frame(root, bg=graph.BACKGROUND)
+        # graph.pyの名前付き描画関数を使う。500msごとの再読み込み・
+        # エラー時に直前の表示を保つ処理はgraph.LivePreviewに共通化する。
+        # 録音スレッドや学習モデルは再起動しない。
+        self.graph_preview = graph.LivePreview(root, graph_frame, graph.__file__)
         root.protocol("WM_DELETE_WINDOW", self.close)
         root.bind("<Escape>", lambda _: self.close())
+        for number in self.scenes:
+            root.bind(str(number), lambda event, selected=number: self.select_scene(selected))
         if args.demo:
             self.status = "デモ表示：実際の音声は使用していません"
         else:
             threading.Thread(target=audio_worker, args=(args, self.events, self.stop), daemon=True).start()
         self.tick()
+
+    def select_scene(self, number):
+        """描画だけを切り替え、録音・識別・スコアの状態は引き継ぐ。"""
+        if number in self.scenes:
+            self.current_scene = number
+            print(f"[scene] {number}", flush=True)
 
     def close(self):
         self.stop.set()
@@ -113,6 +151,7 @@ class InstrumentWindow:
                 self.last_result = now
             elif kind == "error":
                 self.status = f"エラー：{value}"
+                print(self.status, flush=True)
                 self.result_text = "マイク・学習データ・依存ライブラリを確認してください。"
                 self.scores = {}
             else:
@@ -131,40 +170,41 @@ class InstrumentWindow:
         self.root.after(33, self.tick)
 
     def draw(self, now, fresh):
-        c = self.canvas
-        c.delete("all")
-        width, height = c.winfo_width(), c.winfo_height()
-        if width < 10:
+        self.scenes[self.current_scene].draw(self, now, fresh)
+
+    def draw_graph_icon(self, key, x, y, radius, color):
+        """graphの図形を滑らかに描き、識別状態の色を付けて表示する。"""
+        namespace = self.graph_preview.namespace
+        if namespace is None:
             return
-        c.create_text(32, 35, anchor="w", text="ORCHESTRA", fill="#f0f5ff", font=("", 24, "bold"))
-        c.create_text(32, 76, anchor="w", text="楽器の識別結果に合わせて図形が点灯します", fill="#9aabc2", font=("", 12))
-        active = [name for key, name, *_ in INSTRUMENTS if fresh and self.scores.get(key, 0) >= self.args.threshold]
-        summary = "基準以上：" + "・".join(active) if active else "基準以上の楽器：なし"
-        c.create_text(32, 120, anchor="w", text=summary, fill="#e4edf9", font=("", 15, "bold"))
-        y = height * 0.48
-        spacing = (width - 40) / 5
-        for index, (key, name, shape, color) in enumerate(INSTRUMENTS):
-            x = 20 + spacing * (index + 0.5)
-            level = self.levels[key]
-            radius = min(48, spacing * 0.28) * (1 + level * 0.12 * math.sin(now * 5))
-            fill = self.blend("#28354a", color, level)
-            if level > 0.02:
-                ring = radius + 13 + 4 * math.sin(now * 4)
-                c.create_oval(x-ring, y-ring, x+ring, y+ring, outline=self.blend("#101827", color, level * 0.5), width=2)
-            if shape == "circle":
-                c.create_oval(x-radius, y-radius, x+radius, y+radius, fill=fill, outline="")
-            else:
-                c.create_polygon(polygon_points(shape, x, y, radius), fill=fill, outline="")
-            c.create_text(x, y+86, text=name, fill="#e4edf9", font=("", 13, "bold"))
-            score = self.scores.get(key)
-            text = f"{score:.1f} / 100" if score is not None and fresh else "—"
-            detected = fresh and score is not None and score >= self.args.threshold
-            c.create_text(x, y+115, text=text, fill=color if detected else "#9aabc2", font=("", 12))
-        c.create_text(32, height-112, anchor="w", text=self.status, width=width-64, fill="#ffd166" if self.status.startswith("エラー") else "#9aabc2", font=("", 11))
-        age = f" ／ {now-self.last_result:.1f}秒前の結果" if self.last_result else ""
-        volume = f" ／ RMS：{self.rms:.1f}" if self.rms is not None else ""
-        c.create_text(32, height-68, anchor="w", text=self.result_text+volume+age, width=width-64, fill="#9aabc2", font=("", 10))
-        c.create_text(32, height-30, anchor="w", text=f"相対スコアの表示基準：{self.args.threshold:g} / 100（確率・同時演奏の確認ではありません）  |  Esc：終了", fill="#73859e", font=("", 10))
+        revision = id(namespace)
+        if revision != self.graph_revision:
+            self.graph_masks.clear()
+            self.graph_errors.clear()
+            self.graph_revision = revision
+        name, base_radius = GRAPH_SHAPES[key]
+        size = max(16, math.ceil(radius*2+16))
+        cache_key = (name, size)
+        try:
+            if cache_key not in self.graph_masks:
+                surface = namespace["SmoothCanvas"](size, size, "white", namespace["ANTIALIAS_SCALE"])
+                namespace[name](surface, size/2, size/2, scale=(size-16)/2/base_radius)
+                mask = ImageOps.invert(surface.resized_image().convert("L"))
+                self.graph_masks[cache_key] = mask
+                self.graph_masks[(name, "last")] = mask
+            mask = self.graph_masks[cache_key]
+        except Exception as error:
+            if name not in self.graph_errors:
+                print(f"[graph] {name}: {error}. Keeping the previous shape.", flush=True)
+                self.graph_errors.add(name)
+            mask = self.graph_masks.get((name, "last"))
+            if mask is None:
+                return
+        image = Image.new("RGBA", mask.size, color)
+        image.putalpha(mask)
+        photo = ImageTk.PhotoImage(image, master=self.canvas)
+        self.graph_photos.append(photo)
+        self.canvas.create_image(x, y, image=photo)
 
     @staticmethod
     def blend(start: str, end: str, amount: float) -> str:
@@ -173,6 +213,8 @@ class InstrumentWindow:
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    import orchestra_live as live
+    live.add_input_options(parser)
     parser.add_argument("--demo", action="store_true", help="マイクを使わず図形の動きを確認")
     parser.add_argument("--window-seconds", type=float, default=3.0)
     parser.add_argument("--threshold", type=float, default=20.0)
@@ -182,6 +224,13 @@ def main():
     parser.add_argument("--data-dir", default=str(PROJECT_ROOT / "wavlist" / "URMP_Sep"))
     parser.add_argument("--retrain", action="store_true")
     args = parser.parse_args()
+    if args.list_loopback_devices:
+        live.print_loopback_devices()
+        return
+    if args.loopback_device is not None and not args.loopback:
+        parser.error("--loopback-device requires --loopback")
+    if args.loopback and args.device is not None:
+        parser.error("Use --loopback-device for loopback, not --device")
     if not math.isfinite(args.window_seconds) or args.window_seconds <= 0 or args.sample_rate <= 0:
         parser.error("録音時間とサンプルレートは正の値を指定してください。")
     if not 0 <= args.threshold <= 100 or not math.isfinite(args.min_rms) or args.min_rms < 0:

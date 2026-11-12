@@ -2,3 +2,5 @@ pydub
 scikit-learn
 librosa
 sounddevice
+pillow
+PyAudioWPatch; sys_platform == "win32"

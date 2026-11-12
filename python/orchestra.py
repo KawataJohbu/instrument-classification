@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import ast
 import cmath
+import csv
 import hashlib
 import json
 import math
@@ -851,6 +852,79 @@ def print_multi_label_prediction(
         )
 
 
+def evaluate_mix(model, test_dir: Path, max_seconds, segment_seconds, threshold,
+                 rebuild=False):
+    """Mixは推論専用。正解は収集時に作成したmetadata.csvから読む。"""
+    metadata = test_dir / "metadata.csv"
+    with metadata.open(encoding="utf-8-sig", newline="") as source:
+        reader = csv.DictReader(source)
+        if not {"filename", "instruments"}.issubset(reader.fieldnames or []):
+            raise ValueError("metadata.csv requires filename and instruments columns")
+        rows = list(reader)
+    if not rows:
+        raise ValueError("No test files in metadata.csv")
+    tests = []
+    seen = set()
+    for row in rows:
+        path = (test_dir / row["filename"]).resolve()
+        if path.parent != test_dir.resolve() or path.suffix.lower() != ".wav":
+            raise ValueError(f"Invalid test filename: {row['filename']}")
+        if path.name in seen:
+            raise ValueError(f"Duplicate test file: {path.name}")
+        seen.add(path.name)
+        if not path.is_file():
+            raise FileNotFoundError(path)
+        actual = set(filter(None, (label.strip() for label in row["instruments"].split(";"))))
+        if actual - set(CLASS_NAMES):
+            raise ValueError(f"Unknown labels in metadata: {actual}")
+        tests.append((path, actual))
+    counts = {label: [0, 0, 0] for label in CLASS_NAMES}  # TP, FP, FN
+    exact = 0
+    print("\nTest dataset: URMP_Mix (inference only)")
+    print(f"Target labels: {', '.join(CLASS_NAMES)}; threshold: {threshold:g}/100")
+    print("Other instruments and the number of players are outside this evaluation.")
+    print("NOTE: Mix/Sep may contain the same performances; this is not an independent-song test.")
+    for index, (path, actual) in enumerate(tests, 1):
+        info = path.stat()
+        signature = (str(path), info.st_size, info.st_mtime_ns, max_seconds,
+                     segment_seconds, learning_source_hash(), version("librosa"), version("numpy"))
+        key = hashlib.sha256(repr(signature).encode()).hexdigest()
+        cache = CACHE_DIR / f"mix-features-{key}.json"
+        stored = None if rebuild else read_cache(cache)
+        features = None
+        if stored:
+            try:
+                features = [SampleFeatures(**row) for row in stored]
+            except (TypeError, ValueError):
+                pass
+        if not features:
+            print(f"[{index}/{len(tests)}] Analyzing {path.name}...", flush=True)
+            features = extract_segment_features(path, segment_seconds, max_seconds)
+            save_cache(cache, [asdict(item) for item in features])
+        scores, _ = sklearn_file_scores(model, features)
+        predicted = {label for label, score in scores.items() if score >= threshold}
+        matched = actual == predicted
+        exact += matched
+        for label in CLASS_NAMES:
+            counts[label][0] += label in actual and label in predicted
+            counts[label][1] += label not in actual and label in predicted
+            counts[label][2] += label in actual and label not in predicted
+        print(f"[{index}/{len(tests)}] {'OK' if matched else 'MISS'} {path.name}")
+        print(f"  actual={','.join(sorted(actual)) or '(none)'}; predicted={','.join(sorted(predicted)) or '(none)'}", flush=True)
+    def metrics(tp, fp, fn):
+        return (tp/(tp+fp) if tp+fp else 0., tp/(tp+fn) if tp+fn else 0.,
+                2*tp/(2*tp+fp+fn) if 2*tp+fp+fn else 0.)
+    print(f"\nExact-match accuracy: {exact}/{len(tests)} = {exact/len(tests):.1%}")
+    print("Instrument   Precision    Recall       F1")
+    for label, values in counts.items():
+        precision, recall, f1 = metrics(*values)
+        print(f"{label:10}  {precision:9.1%}  {recall:8.1%}  {f1:8.1%}")
+    totals = [sum(values[i] for values in counts.values()) for i in range(3)]
+    precision, recall, f1 = metrics(*totals)
+    print(f"Micro avg   {precision:9.1%}  {recall:8.1%}  {f1:8.1%}")
+    return {"files": len(tests), "exact": exact, "precision": precision, "recall": recall, "f1": f1}
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Extract features from URMP Sep wav files and classify instruments."
@@ -859,6 +933,12 @@ def parse_args() -> argparse.Namespace:
                         help="Rebuild saved features and evaluation results.")
     parser.add_argument("--use-live-model", action="store_true",
                         help="Use the saved live model to measure TRAINING accuracy (not cross-validation).")
+    parser.add_argument("--evaluation", choices=("mix", "leave-one-file-out"), default="mix",
+                        help="Default: test the saved Sep model on URMP_Mix.")
+    parser.add_argument("--test-dir", default=str(PROJECT_ROOT / "wavlist" / "URMP_Mix"),
+                        help="Mix test folder containing wav files and metadata.csv.")
+    parser.add_argument("--test-max-seconds", type=float,
+                        help="Mix test duration only; 0 uses the whole file. Defaults to --max-seconds.")
     parser.add_argument(
         "sample",
         nargs="?",
@@ -944,6 +1024,25 @@ def main() -> None:
         data_dir = (PROJECT_ROOT / data_dir).resolve()
 
     max_seconds = normalize_max_seconds(args.max_seconds)
+    if not args.sample and not args.use_live_model and args.evaluation == "mix":
+        if args.model != "sklearn":
+            raise ValueError("Mix evaluation requires --model sklearn")
+        if (not 0 <= args.threshold <= 100 or not math.isfinite(args.segment_seconds)
+                or args.segment_seconds <= 0 or not math.isfinite(args.max_seconds)
+                or (args.test_max_seconds is not None and not math.isfinite(args.test_max_seconds))):
+            raise ValueError("threshold must be 0..100 and segment-seconds must be positive")
+        test_dir = Path(args.test_dir)
+        if not test_dir.is_absolute():
+            test_dir = PROJECT_ROOT / test_dir
+        if not (test_dir / "metadata.csv").is_file():
+            raise FileNotFoundError(test_dir / "metadata.csv")
+        model = load_or_train_shared_model(data_dir, max_seconds, args.segment_seconds,
+                                          retrain=args.retrain)
+        test_seconds = (max_seconds if args.test_max_seconds is None
+                        else normalize_max_seconds(args.test_max_seconds))
+        evaluate_mix(model, test_dir, test_seconds, args.segment_seconds, args.threshold,
+                     rebuild=args.retrain)
+        return
     if args.use_live_model and args.model != "sklearn":
         raise ValueError("--use-live-model requires --model sklearn")
     model = None
