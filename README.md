@@ -1,12 +1,8 @@
 **・リアルタイムの計測(3秒間隔で計測)　←orchestra_live.pyを動かします**
 
-<<<<<<< HEAD
-ターミナルで以下を実行
-step1   .\.venv\Scripts\Activate.ps1
-=======
+
 ターミナルで以下を実行  
 step1   .\.venv\Scripts\Activate.ps1  
->>>>>>> 5922fb6e7c35698b36f06deabaa9322126538ef3
 step2   .\.venv\Scripts\python.exe .\python\orchestra_live.py
 
 
@@ -14,7 +10,7 @@ step2   .\.venv\Scripts\python.exe .\python\orchestra_live.py
 
 ・実際に計測してみてわかったこと  
 高い音が出るとホルンの特徴が強くなる  
-オーボエのスコアが全然出てこない  
+[!aaa]オーボエのスコアが全然出てこない  
 フルートとヴァイオリンは中音だとしっかり認識できるようになった  
 チェロも認識はできているがヴァイオリンのほうがスコアが大きく出る傾向にある  
 ＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿
