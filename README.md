@@ -41,3 +41,37 @@ sounddevice
 MFCC(音色を計測する)の平均　26項目
 
 サポートベクターマシンで学習する。現在の設定はRBFカーネル、C=3.0、gamma="scale"になっています。
+
+## URMP_Mixでの評価
+
+```powershell
+py .\python\orchestra.py
+```
+
+URMP_Sepで学習した保存済みモデルを使い、URMP_Mixの`metadata.csv`を正解として評価します。
+Mixの音声は学習に追加しません。モデルの学習設定と実行環境が一致すれば再学習を省略します。
+テスト音声の特徴量も保存するため、同じ設定での2回目以降の評価は速くなります。
+
+- `Exact-match accuracy`：検出した楽器の集合が正解と完全一致したファイルの割合
+- `Precision`：検出した楽器のうち正解だった割合
+- `Recall`：正解の楽器のうち検出できた割合
+- `F1`：PrecisionとRecallの調和平均（分母が0の場合は0として表示）
+
+評価対象はviolin・cello・flute・oboe・hornの5種類です。人数や対象外の楽器は評価しません。
+正解はファイル全体の楽器一覧なので、先頭の一部だけを分析する場合、その区間で休んでいる楽器も正解に含まれます。
+SepとMixには同じ演奏に由来する音源が含まれるため、未知の曲に対する独立したテストではありません。
+
+テスト範囲や判定基準の指定例：
+
+```powershell
+py .\python\orchestra.py --max-seconds 120 --threshold 20
+```
+
+`--max-seconds`はモデルの学習範囲にも適用されます。値を変えるとモデルを再学習する場合があります。
+テスト音声の長さだけ変える場合は`--test-max-seconds`を指定できます（`0`ならテスト音声全体）。
+この指定はモデルの学習設定を変えません。
+以前の「1ファイルずつ学習から除く評価」は次で実行できます。
+
+```powershell
+py .\python\orchestra.py --evaluation leave-one-file-out
+```
