@@ -2,8 +2,13 @@
 
 
 ターミナルで以下を実行  
-step1   .\.venv\Scripts\Activate.ps1  
-step2   .\.venv\Scripts\python.exe .\python\orchestra_live.py
+\python\orchestra_live.py  
+
+※必要なライブラリ  
+pydub  
+scikit-learn  
+librosa  
+sounddevice  
 
 
 ＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿
