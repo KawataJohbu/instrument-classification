@@ -1,18 +1,23 @@
 from __future__ import annotations
 
 import argparse
+import ast
 import cmath
+import hashlib
+import json
 import math
 import statistics
 import struct
 import wave
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
+from importlib.metadata import version
 from pathlib import Path
+import tempfile
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DATA_DIR = PROJECT_ROOT / "wavlist" / "URMP_Sep"
 WINDOW_MS = 50
-DEFAULT_MAX_SECONDS = 15.0
+DEFAULT_MAX_SECONDS = 120.0
 DEFAULT_SEGMENT_SECONDS = 2.0
 MIN_SEGMENT_SECONDS = 0.75
 MIN_SEGMENT_RMS_RATIO = 0.05
@@ -23,6 +28,162 @@ CLASS_NAMES = ("violin", "cello", "flute", "oboe", "horn")
 DEFAULT_PRESENCE_THRESHOLD = 20.0
 SCORE_TEMPERATURE = 1.0
 DEFAULT_MODEL = "sklearn"
+CACHE_DIR = Path(__file__).resolve().parent / ".cache" / "orchestra"
+MODEL_CACHE = Path(__file__).resolve().parent / ".cache" / "orchestra_live.joblib"
+
+
+def learning_source_hash() -> str:
+    """表示や評価処理の変更では学習済みモデルを無効にしない。"""
+    names = {
+        "SampleFeatures", "infer_label_and_source", "load_mono_samples",
+        "rms_windows_from_samples", "decode_mono_samples", "calculate_rms",
+        "fft", "select_frame_starts", "spectral_centroid_ratio", "mfcc_features",
+        "trim_silence", "rms_to_centroid_ratio", "mean_slice",
+        "extract_features_from_samples", "extract_segment_features",
+        "import_sklearn_tools", "train_sklearn_model", "load_training_items",
+    }
+    tree = ast.parse(Path(__file__).read_text(encoding="utf-8-sig"))
+    nodes = []
+    for node in tree.body:
+        if isinstance(node, (ast.FunctionDef, ast.ClassDef)) and node.name in names:
+            nodes.append(ast.dump(node, include_attributes=False))
+        elif isinstance(node, ast.Assign) and any(
+            isinstance(target, ast.Name) and target.id.isupper()
+            and target.id not in {"PROJECT_ROOT", "DATA_DIR", "CACHE_DIR", "MODEL_CACHE"}
+            for target in node.targets
+        ):
+            nodes.append(ast.dump(node, include_attributes=False))
+    return hashlib.sha256("\n".join(nodes).encode()).hexdigest()
+
+
+def load_or_train_shared_model(data_dir, max_seconds, segment_seconds, retrain=False,
+                               cache_path=None):
+    import joblib
+    import sklearn
+    import numpy
+
+    path = MODEL_CACHE if cache_path is None else Path(cache_path)
+    data_dir = Path(data_dir).resolve()
+    files = []
+    for label in CLASS_NAMES:
+        for wav in sorted((data_dir / label).glob("*.wav")):
+            info = wav.stat()
+            files.append((str(wav.relative_to(data_dir)), info.st_size, info.st_mtime_ns))
+    if not files:
+        raise FileNotFoundError(f"No training wav files found in {data_dir}")
+    signature = {
+        "data_dir": str(data_dir), "files": files, "max_seconds": max_seconds,
+        "segment_seconds": segment_seconds, "source": learning_source_hash(),
+        "sklearn": sklearn.__version__, "numpy": numpy.__version__, "cache_version": 2,
+        "librosa": version("librosa"),
+    }
+    if path.exists() and not retrain:
+        try:
+            cached = joblib.load(path)
+            previous = cached["signature"]
+            # この変更前に保存済みの、学習ロジックが同一の既知バージョンを引き継ぐ。
+            legacy_hashes = {
+                "53e104e1bbb3bb8e4534b3c1ac9531f7e6d193f9d59bb92b2785e636f25c5679",
+                "92b439c42e39aad7a10841f79cbbc30675e7e73d0860ce57a7f30f54ca531411",
+            }
+            legacy = (previous.get("cache_version") == 1
+                      and previous.get("source") in legacy_hashes
+                      and all(previous.get(key) == value for key, value in signature.items()
+                              if key not in {"source", "cache_version", "librosa"}))
+            if previous == signature or legacy:
+                model = cached["model"]
+                if legacy:
+                    save_shared_model(path, signature, model)
+                print("Loaded saved model. Skipping training.")
+                return model
+            print("Training data, learning logic or settings changed. Rebuilding model...")
+        except Exception as error:
+            print(f"Could not load saved model ({type(error).__name__}). Rebuilding...")
+    key = training_cache_key(data_dir, max_seconds, segment_seconds)
+    items = load_cached_training_items(data_dir, max_seconds, segment_seconds, key, rebuild=retrain)
+    print(f"Training segments: {len(items)}")
+    print("Training sklearn model...")
+    model = train_sklearn_model(items)
+    save_shared_model(path, signature, model)
+    return model
+
+
+def save_shared_model(path, signature, model):
+    import joblib
+    temporary = None
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(dir=path.parent, suffix=".tmp", delete=False) as output:
+            temporary = Path(output.name)
+        joblib.dump({"signature": signature, "model": model}, temporary)
+        temporary.replace(path)
+        print("Saved model for next startup.")
+    except OSError as error:
+        print(f"Could not save model ({type(error).__name__}); continuing.")
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
+def training_cache_key(data_dir: Path, max_seconds: float | None, segment_seconds: float) -> str:
+    data_dir = data_dir.resolve()
+    files = []
+    for label in CLASS_NAMES:
+        for path in sorted((data_dir / label).glob("*.wav")):
+            info = path.stat()
+            files.append((str(path.relative_to(data_dir)), info.st_size, info.st_mtime_ns))
+    if not files:
+        raise FileNotFoundError(f"No training wav files found in {data_dir}")
+    signature = {
+        "directory": str(data_dir), "files": files,
+        "max_seconds": max_seconds, "segment_seconds": segment_seconds,
+        "source": learning_source_hash(),
+        "versions": {name: version(name) for name in ("numpy", "librosa", "scikit-learn")},
+    }
+    return hashlib.sha256(json.dumps(signature, sort_keys=True).encode()).hexdigest()
+
+
+def read_cache(path: Path):
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return None
+    except (OSError, ValueError) as error:
+        print(f"Could not read cache ({type(error).__name__}); rebuilding.")
+        return None
+
+
+def save_cache(path: Path, value) -> None:
+    temporary = None
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent,
+                                         suffix=".tmp", delete=False) as output:
+            temporary = Path(output.name)
+            json.dump(value, output)
+        temporary.replace(path)
+    except OSError as error:
+        print(f"Could not save cache ({type(error).__name__}); continuing.")
+    finally:
+        if temporary is not None:
+            temporary.unlink(missing_ok=True)
+
+
+def load_cached_training_items(data_dir, max_seconds, segment_seconds, key, rebuild=False):
+    path = CACHE_DIR / f"features-{key}.json"
+    cached = None if rebuild else read_cache(path)
+    if cached is not None:
+        try:
+            items = [SampleFeatures(**row) for row in cached]
+            if items:
+                print("Loaded saved features. Skipping audio analysis.")
+                return items
+        except (TypeError, ValueError):
+            print("Invalid feature cache; rebuilding.")
+    print("Analyzing training audio...")
+    items = load_training_items(data_dir, max_seconds, segment_seconds)
+    save_cache(path, [asdict(item) for item in items])
+    return items
 
 
 @dataclass
@@ -579,8 +740,20 @@ def print_samples(items: list[SampleFeatures]) -> None:
         )
 
 
-def print_evaluation(items: list[SampleFeatures], model_name: str = DEFAULT_MODEL) -> None:
-    accuracy, results = leave_one_file_out_accuracy(items, model_name=model_name)
+def print_evaluation(items: list[SampleFeatures], model_name: str = DEFAULT_MODEL,
+                     cache_key: str | None = None, rebuild: bool = False) -> None:
+    path = CACHE_DIR / f"evaluation-{model_name}-{cache_key}.json" if cache_key else None
+    cached = read_cache(path) if path is not None and not rebuild else None
+    if (isinstance(cached, dict) and isinstance(cached.get("accuracy"), (int, float))
+            and isinstance(cached.get("results"), list)
+            and all(isinstance(row, list) and len(row) == 3 for row in cached["results"])):
+        accuracy, results = cached["accuracy"], cached["results"]
+        print("Loaded saved evaluation. Skipping repeated training.")
+    else:
+        print("Evaluating with leave-one-file-out training...")
+        accuracy, results = leave_one_file_out_accuracy(items, model_name=model_name)
+        if path is not None:
+            save_cache(path, {"accuracy": accuracy, "results": results})
     print()
     print(f"Model: {model_name}")
     print(f"Leave-one-file-out accuracy: {accuracy:.1%}")
@@ -600,6 +773,7 @@ def print_single_prediction(
     max_seconds: float | None = DEFAULT_MAX_SECONDS,
     segment_seconds: float = DEFAULT_SEGMENT_SECONDS,
     model_name: str = DEFAULT_MODEL,
+    model=None,
 ) -> None:
     test_items = extract_segment_features(
         sample_path,
@@ -607,7 +781,8 @@ def print_single_prediction(
         max_seconds=max_seconds,
     )
     if model_name == "sklearn":
-        model = train_sklearn_model(train_items)
+        if model is None:
+            model = train_sklearn_model(train_items)
         scores, _votes = sklearn_file_scores(model, test_items)
         predicted = max(scores, key=scores.get)
     else:
@@ -640,6 +815,7 @@ def print_multi_label_prediction(
     segment_seconds: float = DEFAULT_SEGMENT_SECONDS,
     threshold: float = DEFAULT_PRESENCE_THRESHOLD,
     model_name: str = DEFAULT_MODEL,
+    model=None,
 ) -> None:
     test_items = extract_segment_features(
         sample_path,
@@ -647,7 +823,8 @@ def print_multi_label_prediction(
         max_seconds=max_seconds,
     )
     if model_name == "sklearn":
-        model = train_sklearn_model(train_items)
+        if model is None:
+            model = train_sklearn_model(train_items)
         scores, votes = sklearn_file_scores(model, test_items)
     else:
         scores, votes = average_segment_scores(train_items, test_items)
@@ -678,6 +855,10 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Extract features from URMP Sep wav files and classify instruments."
     )
+    parser.add_argument("--retrain", action="store_true",
+                        help="Rebuild saved features and evaluation results.")
+    parser.add_argument("--use-live-model", action="store_true",
+                        help="Use the saved live model to measure TRAINING accuracy (not cross-validation).")
     parser.add_argument(
         "sample",
         nargs="?",
@@ -763,10 +944,16 @@ def main() -> None:
         data_dir = (PROJECT_ROOT / data_dir).resolve()
 
     max_seconds = normalize_max_seconds(args.max_seconds)
-    items = load_training_items(
-        data_dir,
-        max_seconds=max_seconds,
-        segment_seconds=args.segment_seconds,
+    if args.use_live_model and args.model != "sklearn":
+        raise ValueError("--use-live-model requires --model sklearn")
+    model = None
+    if args.model == "sklearn" and (args.sample or args.use_live_model):
+        model = load_or_train_shared_model(
+            data_dir, max_seconds, args.segment_seconds, retrain=args.retrain,
+        )
+    cache_key = training_cache_key(data_dir, max_seconds, args.segment_seconds)
+    items = [] if args.sample and model is not None else load_cached_training_items(
+        data_dir, max_seconds, args.segment_seconds, cache_key, rebuild=args.retrain,
     )
 
     if args.sample:
@@ -785,6 +972,7 @@ def main() -> None:
                 segment_seconds=args.segment_seconds,
                 threshold=args.threshold,
                 model_name=args.model,
+                model=model,
             )
             return
         print_single_prediction(
@@ -793,13 +981,27 @@ def main() -> None:
             max_seconds=max_seconds,
             segment_seconds=args.segment_seconds,
             model_name=args.model,
+            model=model,
         )
         return
 
     print_feature_summary(items)
     if args.details:
         print_samples(items)
-    print_evaluation(items, model_name=args.model)
+    if args.use_live_model:
+        results = []
+        for test_items in group_items_by_file(items).values():
+            results.append((test_items[0].filename, test_items[0].label,
+                            sklearn_predict_file(model, test_items)))
+        correct = sum(actual == predicted for _, actual, predicted in results)
+        print("\nWARNING: These files were used to train this saved model.")
+        print("This is training accuracy, NOT leave-one-file-out or microphone accuracy.")
+        print(f"Training accuracy (saved live model): {correct / len(results):.1%}")
+        for filename, actual, predicted in results:
+            if actual != predicted:
+                print(f"{filename}: actual={actual}, predicted={predicted}")
+        return
+    print_evaluation(items, model_name=args.model, cache_key=cache_key, rebuild=args.retrain)
 
 
 if __name__ == "__main__":

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import time
 from pathlib import Path
 from pprint import pformat
@@ -23,50 +22,9 @@ MODEL_CACHE = Path(__file__).resolve().parent / ".cache" / "orchestra_live.jobli
 
 def load_or_train_model(data_dir: Path, max_seconds: float | None,
                         segment_seconds: float, retrain: bool = False):
-    import joblib
-    import sklearn
-    import numpy
-
-    data_dir = data_dir.resolve()
-    # Compare metadata without reading the large audio files on every startup.
-    files = []
-    for label in orchestra.CLASS_NAMES:
-        for path in sorted((data_dir / label).glob("*.wav")):
-            stat = path.stat()
-            files.append((str(path.relative_to(data_dir)), stat.st_size, stat.st_mtime_ns))
-    if not files:
-        raise FileNotFoundError(f"No training wav files found in {data_dir}")
-    signature = {
-        "data_dir": str(data_dir), "files": files,
-        "max_seconds": max_seconds, "segment_seconds": segment_seconds,
-        "source": hashlib.sha256(Path(orchestra.__file__).read_bytes()).hexdigest(),
-        "sklearn": sklearn.__version__, "numpy": numpy.__version__,
-        "cache_version": 1,
-    }
-    if MODEL_CACHE.exists() and not retrain:
-        try:
-            cached = joblib.load(MODEL_CACHE)
-            if cached["signature"] == signature:
-                print("Loaded saved model. Skipping training.")
-                return cached["model"]
-            print("Training data or settings changed. Rebuilding model...")
-        except Exception as error:
-            print(f"Could not load saved model ({type(error).__name__}). Rebuilding...")
-
-    print("Loading training data...")
-    train_items = orchestra.load_training_items(
-        data_dir, max_seconds=max_seconds, segment_seconds=segment_seconds,
+    return orchestra.load_or_train_shared_model(
+        data_dir, max_seconds, segment_seconds, retrain=retrain, cache_path=MODEL_CACHE,
     )
-    print(f"Training segments: {len(train_items)}")
-    print("Training sklearn model...")
-    model = orchestra.train_sklearn_model(train_items)
-    try:
-        MODEL_CACHE.parent.mkdir(parents=True, exist_ok=True)
-        joblib.dump({"signature": signature, "model": model}, MODEL_CACHE)
-        print("Saved model for next startup.")
-    except OSError as error:
-        print(f"Could not save model ({type(error).__name__}); continuing.")
-    return model
 
 
 def record_mono_samples(sample_rate: int, seconds: float, device: int | None) -> list[float]:
