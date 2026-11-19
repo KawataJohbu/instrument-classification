@@ -26,12 +26,21 @@ orchestra_anime.pyで表示しています
 ```terminal
 py .\python\orchestra_anime.py
 ```
-**scene1：**  
-**scene2：**  
-**scene3：**  
 
+### 第１楽章
+**scene1~5を使用**  
+**scene1：(orchestra_anime実行中に1を押す)**  
+![scene1図](./images/scene1.png)  
+**scene2：(orchestra_anime実行中に2を押す)**  
+![scene2図](./images/scene2.png)  
+**scene3：(orchestra_anime実行中に3を押す)**  
+![scene3図](./images/scene3.png)  
+**scene4：(orchestra_anime実行中に4を押す)**  
+![scene4図](./images/scene4.png)  
+**scene5：(orchestra_anime実行中に5を押す)**  
+![scene5図](./images/scene5.png)  
 
-### 
+### 第４楽章
 
 ## 感想
 ＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿
