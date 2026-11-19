@@ -16,7 +16,7 @@ pillow　など
 ### リアルタイム計測コード
 
 ```terminal
-\python\orchestra_live.py  
+py .\python\orchestra_live.py  
 ```
 
 
