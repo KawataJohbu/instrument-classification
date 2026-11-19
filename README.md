@@ -54,6 +54,15 @@ MFCC(音色を計測する)の平均　26項目
 
 ## リアルタイムの音声識別を使った映像表現
 
+orchestra_anime.pyで表示しています  
+```terminal
+py .\python\orchestra_anime.py
+```
+**scene1：**  
+**scene2：**  
+**scene3：**  
+
+
 ### 
 
 
