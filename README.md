@@ -1,3 +1,4 @@
+
 ## リアルタイムの計測(3秒間隔で計測)　←orchestra_live.pyを動かします
 
 ### 必要なライブラリのインポート(ターミナルで実行)
@@ -9,7 +10,7 @@ py -m pip install -r requirements.txt
 pydub  
 scikit-learn  
 librosa  
-sounddevice 　
+sounddevice  
 pillow　など  
 
 ### リアルタイム計測コード
@@ -19,8 +20,20 @@ pillow　など
 ```
 
 
+## リアルタイムの音声識別を使った映像表現
+
+orchestra_anime.pyで表示しています  
+```terminal
+py .\python\orchestra_anime.py
+```
+**scene1：**  
+**scene2：**  
+**scene3：**  
 
 
+### 
+
+## 感想
 ＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿
 
 ・実際に計測してみてわかったこと  
@@ -52,21 +65,9 @@ MFCC(音色を計測する)の平均　26項目
 
 サポートベクターマシンで学習する。現在の設定はRBFカーネル、C=3.0、gamma="scale"になっています。
 
-## リアルタイムの音声識別を使った映像表現
-
-orchestra_anime.pyで表示しています  
-```terminal
-py .\python\orchestra_anime.py
-```
-**scene1：**  
-**scene2：**  
-**scene3：**  
 
 
-### 
-
-
-## URMP_Mixでの評価
+## URMP_Mixでの評価(AI記入)
 
 ```powershell
 py .\python\orchestra.py
