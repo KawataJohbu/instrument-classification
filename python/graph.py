@@ -10,6 +10,8 @@ from PIL import Image, ImageDraw, ImageTk
 
 BACKGROUND = "#ffffff"
 ANTIALIAS_SCALE = 4  # 大きく描いて縮小する倍率。数値が大きいほど処理量も増える。
+# 拡大後の雲を切らずに画像化するため、呼び出し側で確保する描画範囲。
+SHAPE_EXTENT_FACTORS = {"cloud1": 1.55, "cloud2": 1.4, "cloud3": 2.2}
 
 
 class SmoothCanvas:
@@ -73,7 +75,7 @@ def display_scene(canvas):
     canvas.preview_image = photo  # 参照を保持して、表示画像が消えるのを防ぐ。
 
 
-def draw_cloud(canvas, x, y, scale=1.0, variant=0):
+def draw_cloud(canvas, x, y, scale=1.0, variant=0, stretch_x=1.0, stretch_y=1.0):
     """楕円の組み合わせを変えた4種類の雲。"""
     variants = [
         # 薄く長く流れる雲。上面の丸みを浅くして出っ張りを抑える。
@@ -98,8 +100,8 @@ def draw_cloud(canvas, x, y, scale=1.0, variant=0):
     parts = variants[variant]
     for left, top, right, bottom in parts:
         canvas.create_oval(
-            x + left * scale, y + top * scale,
-            x + right * scale, y + bottom * scale,
+            x + left * scale * stretch_x, y + top * scale * stretch_y,
+            x + right * scale * stretch_x, y + bottom * scale * stretch_y,
             fill="#000000", outline="",
         )
 
@@ -165,18 +167,18 @@ def draw_leaf(canvas, x, y, scale=1.0, rotation=0, tilt=0):
 
 
 def cloud1(canvas, x, y, scale=1.0):
-    """上段の雲。"""
-    draw_cloud(canvas, x, y, scale, variant=1)
+    """上段の雲。横1.5倍、縦1.15倍。"""
+    draw_cloud(canvas, x, y, scale, variant=1, stretch_x=1.5, stretch_y=1.15)
 
 
 def cloud2(canvas, x, y, scale=1.0):
-    """中段の雲。"""
-    draw_cloud(canvas, x, y, scale, variant=3)
+    """中段の雲。横1.5倍、縦1.15倍。"""
+    draw_cloud(canvas, x, y, scale, variant=3, stretch_x=1.5, stretch_y=1.15)
 
 
 def cloud3(canvas, x, y, scale=1.0):
-    """下段の雲。"""
-    draw_cloud(canvas, x, y, scale, variant=0)
+    """下段の雲。縦横ともに2倍。"""
+    draw_cloud(canvas, x, y, scale, variant=0, stretch_x=2.0, stretch_y=2.0)
 
 
 def bubbleS(canvas, x, y, scale=1.0):
@@ -223,16 +225,17 @@ def draw_scene(canvas):
     """左列に雲、中央にシャボン玉4サイズ、右列に葉っぱの4コマ。"""
     canvas.delete("all")
     width, height = canvas.winfo_width(), canvas.winfo_height()
-    cloud_scale = min(1.0, width/960, height/600)
+    # 大きくした雲が切れないよう、左列を広く確保する。
+    cloud_scale = min(1.0, width*.24/278, height/600)
     for row, draw in enumerate((cloud1, cloud2, cloud3)):
-        draw(canvas, width/6, height*(row+.5)/3, cloud_scale)
+        draw(canvas, width*.26, height*(row+.5)/3, cloud_scale)
     bubble_scale = min(1.0, width/960, height/680)
     for row, draw in enumerate((bubbleS, bubbleM, bubbleL, bubbleXL)):
-        draw(canvas, width/2, height*(row+.5)/4, bubble_scale)
+        draw(canvas, width*.65, height*(row+.5)/4, bubble_scale)
     leaf_scale = min(0.60, width/1600, height/900)
     # 画面内の向きと横位置は固定し、奥行き方向の傾きだけを変える。
     for row, draw in enumerate((leaf_front, leaf_diagonal, leaf_side, leaf_back)):
-        draw(canvas, width*5/6, height*(row+.5)/4, leaf_scale)
+        draw(canvas, width*.88, height*(row+.5)/4, leaf_scale)
 
 
 class LivePreview:

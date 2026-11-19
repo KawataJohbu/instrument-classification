@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+from collections import OrderedDict
 import math
 from pathlib import Path
 import queue
@@ -16,6 +17,7 @@ sys.path.insert(0, str(PROJECT_ROOT / "python"))
 
 import graph
 from scenes import SCENES
+from scenes.common import BACKGROUND
 from PIL import Image, ImageOps, ImageTk
 
 # graph.pyで調整した名前付き関数を、楽器ごとに指定する。
@@ -105,10 +107,15 @@ class InstrumentWindow:
         self.graph_photos = []
         self.graph_revision = None
         self.graph_errors = set()
+        self.graph_photo_cache = OrderedDict()
+        self.graph_items = {}
+        self.drawn_scene = None
+        self.scene1_overlay = None
+        self.frame_stats = [time.perf_counter(), 0, 0.0]
         root.title("Orchestra — 楽器の識別アニメーション")
-        root.geometry("1050x560")
-        root.minsize(760, 480)
-        self.canvas = tk.Canvas(root, bg="#101827", highlightthickness=0)
+        root.geometry(f"{args.width}x{args.height}")
+        root.minsize(200, 200)
+        self.canvas = tk.Canvas(root, bg=BACKGROUND, highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
         # プレビューは表示せず、保存時の再読み込みだけを利用する。
         graph_frame = tk.Frame(root, bg=graph.BACKGROUND)
@@ -140,6 +147,7 @@ class InstrumentWindow:
         self.root.destroy()
 
     def tick(self):
+        frame_started = time.perf_counter()
         now = time.monotonic()
         while True:
             try:
@@ -167,13 +175,31 @@ class InstrumentWindow:
             target = float(fresh and self.scores.get(key, 0) >= self.args.threshold)
             self.levels[key] += (target - self.levels[key]) * 0.12
         self.draw(now, fresh)
-        self.root.after(33, self.tick)
+        elapsed = time.perf_counter()-frame_started
+        self.frame_stats[1] += 1
+        self.frame_stats[2] += elapsed
+        span = time.perf_counter()-self.frame_stats[0]
+        if self.args.timing and span >= 2:
+            print(f"Render: {self.frame_stats[1]/span:.1f} fps; frame work: {1000*self.frame_stats[2]/self.frame_stats[1]:.2f} ms", flush=True)
+            self.frame_stats = [time.perf_counter(), 0, 0.0]
+        # 描画時間を差し引いて待ち、描画時間+固定待機によるfps低下を避ける。
+        self.root.after(max(1, round(1000/60-elapsed*1000)), self.tick)
 
     def draw(self, now, fresh):
+        if self.drawn_scene != self.current_scene:
+            self.canvas.delete("all")
+            self.graph_items.clear()
+            self.scene1_overlay = None
+            self.drawn_scene = self.current_scene
         self.scenes[self.current_scene].draw(self, now, fresh)
 
     def draw_graph_icon(self, key, x, y, radius, color):
         """graphの図形を滑らかに描き、識別状態の色を付けて表示する。"""
+        name, base_radius = GRAPH_SHAPES[key]
+        self.draw_graph_shape(name, x, y, radius, color, base_radius)
+
+    def draw_graph_shape(self, name, x, y, radius, color="black", base_radius=130, item_key=None):
+        """シーンからgraphの名前付き関数を直接選び、描画する。"""
         namespace = self.graph_preview.namespace
         if namespace is None:
             return
@@ -181,14 +207,21 @@ class InstrumentWindow:
         if revision != self.graph_revision:
             self.graph_masks.clear()
             self.graph_errors.clear()
+            self.graph_photo_cache.clear()
             self.graph_revision = revision
-        name, base_radius = GRAPH_SHAPES[key]
-        size = max(16, math.ceil(radius*2+16))
-        cache_key = (name, size)
+        extent = namespace.get("SHAPE_EXTENT_FACTORS", {}).get(name, 1.0)
+        size = max(16, math.ceil(radius*2*extent+16))
+        cache_key = (name, size, base_radius)
+        photo_key = (name, size, base_radius, color)
+        photo = self.graph_photo_cache.get(photo_key)
+        if photo is not None:
+            self.graph_photo_cache.move_to_end(photo_key)
+            self.place_graph_photo(photo, x, y, item_key)
+            return
         try:
             if cache_key not in self.graph_masks:
                 surface = namespace["SmoothCanvas"](size, size, "white", namespace["ANTIALIAS_SCALE"])
-                namespace[name](surface, size/2, size/2, scale=(size-16)/2/base_radius)
+                namespace[name](surface, size/2, size/2, scale=radius/base_radius)
                 mask = ImageOps.invert(surface.resized_image().convert("L"))
                 self.graph_masks[cache_key] = mask
                 self.graph_masks[(name, "last")] = mask
@@ -203,8 +236,34 @@ class InstrumentWindow:
         image = Image.new("RGBA", mask.size, color)
         image.putalpha(mask)
         photo = ImageTk.PhotoImage(image, master=self.canvas)
-        self.graph_photos.append(photo)
-        self.canvas.create_image(x, y, image=photo)
+        self.graph_photo_cache[photo_key] = photo
+        # サイズ変更や色変化を繰り返しても無制限にメモリを使わない。
+        while len(self.graph_photo_cache) > 128:
+            self.graph_photo_cache.popitem(last=False)
+        while len(self.graph_masks) > 128:
+            self.graph_masks.pop(next(iter(self.graph_masks)))
+        self.place_graph_photo(photo, x, y, item_key)
+
+    def place_graph_photo(self, photo, x, y, item_key=None):
+        if item_key is None:
+            self.graph_photos.append(photo)
+            self.canvas.create_image(x, y, image=photo)
+            return
+        previous = self.graph_items.get(item_key)
+        if previous is None:
+            item = self.canvas.create_image(x, y, image=photo)
+        else:
+            item, old_photo = previous
+            self.canvas.coords(item, x, y)
+            if old_photo is not photo:
+                self.canvas.itemconfigure(item, image=photo)
+        # Canvasが使っている画像の参照はLRUから外れても保持する。
+        self.graph_items[item_key] = (item, photo)
+
+    def finish_graph_items(self, active_keys):
+        for key in set(self.graph_items)-active_keys:
+            item, _ = self.graph_items.pop(key)
+            self.canvas.delete(item)
 
     @staticmethod
     def blend(start: str, end: str, amount: float) -> str:
@@ -216,6 +275,8 @@ def main():
     import orchestra_live as live
     live.add_input_options(parser)
     parser.add_argument("--demo", action="store_true", help="マイクを使わず図形の動きを確認")
+    parser.add_argument("--width", type=int, default=1050, help="Window width in pixels (e.g. 1920).")
+    parser.add_argument("--height", type=int, default=560, help="Window height in pixels (e.g. 1920).")
     parser.add_argument("--window-seconds", type=float, default=3.0)
     parser.add_argument("--threshold", type=float, default=20.0)
     parser.add_argument("--min-rms", type=float, default=150.0)
@@ -224,6 +285,8 @@ def main():
     parser.add_argument("--data-dir", default=str(PROJECT_ROOT / "wavlist" / "URMP_Sep"))
     parser.add_argument("--retrain", action="store_true")
     args = parser.parse_args()
+    if args.width < 200 or args.height < 200:
+        parser.error("Window width and height must be at least 200.")
     if args.list_loopback_devices:
         live.print_loopback_devices()
         return
