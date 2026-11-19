@@ -5,6 +5,10 @@
 py -m pip install -r requirements.txt
 ```
 
+**リアルタイム計測のコード**
+```powershell
+py .\python\orchestra_live.py
+```
 
 ＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿
 
