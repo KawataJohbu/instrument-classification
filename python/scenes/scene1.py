@@ -12,6 +12,8 @@ CLOUDS = ("cloud1", "cloud3", "cloud2")
 BUBBLES = (("bubbleS", 25), ("bubbleM", 40), ("bubbleL", 55), ("bubbleXL", 75))
 INTERVALS = {"horn": 10.0, "cello": 1.5, "flute": 1.2}
 PREVIEW_ALL = False  # 検知された楽器に対応する図形だけを出現させる。
+LEAF_ROTATION_DEGREES = 90.0  # 落下中に画像中心から反時計回りに回る角度。
+BUBBLE_TRAVEL_SECONDS = 20.0  # 長いほど、左下へゆっくり流れる。
 NAMES = {"horn": "\u30db\u30eb\u30f3", "flute": "\u30d5\u30eb\u30fc\u30c8", "cello": "\u30c1\u30a7\u30ed"}
 
 
@@ -24,6 +26,12 @@ class Particle:
     radius: float
     base_radius: float
     duration: float
+    loop_phase: float = 0.
+    sway_x: float = 0.
+    sway_y: float = 0.
+    sway_period_x: float = 4.
+    sway_period_y: float = 5.
+    sway_phase: float = 0.
 
     def position(self, now):
         progress = max(0., (now-self.born)/self.duration)
@@ -35,7 +43,13 @@ class Particle:
             drop = .42*math.log1p(6*progress)/math.log(7)
             return -.06+1.18*progress, self.y_start+drop
         distance = 1.16*progress
-        return 1.06-distance, self.y_start+distance*math.tan(math.radians(40))
+        age = max(0., now-self.born)
+        phase = self.sway_phase
+        # 出現時の位置を保ちつつ、経過時間から連続した揺れを計算する。
+        sway_x = self.sway_x*(math.sin(2*math.pi*age/self.sway_period_x+phase)-math.sin(phase))
+        sway_y = self.sway_y*(math.cos(2*math.pi*age/self.sway_period_y+phase)-math.cos(phase))
+        return (1.06-distance+sway_x,
+                self.y_start+distance*math.tan(math.radians(40))+sway_y)
 
 
 @dataclass
@@ -55,12 +69,18 @@ class SceneState:
             duration = 40.0 / 1.1 if y_start >= .17 else 40.0
             particle = Particle(instrument, shape, now, y_start, .1125, 130, duration)
         elif instrument == "cello":
-            particle = Particle(instrument, self.rng.choice(LEAVES), now,
-                                self.rng.uniform(.54, .72), .045, 115, 18.)
+            particle = Particle(instrument, "leaf_loop", now,
+                                self.rng.uniform(.54, .72), .045, 115, 18.,
+                                loop_phase=self.rng.random())
         else:
             shape, base_radius = self.rng.choice(BUBBLES)
             particle = Particle(instrument, shape, now, self.rng.uniform(.20, 2/3),
-                                base_radius/1920, base_radius, 14.)
+                                base_radius/1920, base_radius, BUBBLE_TRAVEL_SECONDS,
+                                sway_x=self.rng.uniform(.012, .025),
+                                sway_y=self.rng.uniform(.015, .030),
+                                sway_period_x=self.rng.uniform(3., 6.),
+                                sway_period_y=self.rng.uniform(3., 6.),
+                                sway_phase=self.rng.uniform(0., 2*math.pi))
         self.particles.append(particle)
         self.last_spawn[instrument] = now
 
@@ -93,9 +113,15 @@ def draw(view, now, fresh):
         x, y = particle.position(now)
         key = id(particle)
         active_keys.add(key)
-        view.draw_graph_shape(particle.shape, x*width, y*height,
-                              particle.radius*min(width, height), "black", particle.base_radius,
-                              item_key=key)
+        radius = particle.radius*min(width, height)
+        if particle.instrument == "cello":
+            age = max(0., now-particle.born)
+            rotation = LEAF_ROTATION_DEGREES * min(1., age/particle.duration)
+            view.draw_leaf_loop(x*width, y*height, radius,
+                               age, particle.loop_phase, item_key=key, rotation=rotation)
+        else:
+            view.draw_graph_shape(particle.shape, x*width, y*height,
+                                  radius, "black", particle.base_radius, item_key=key)
     view.finish_graph_items(active_keys)
     # Small black scores at bottom left; no other on-screen text.
     font_size = max(1, round(min(width, height)*.015))

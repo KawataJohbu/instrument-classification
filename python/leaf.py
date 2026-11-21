@@ -3,11 +3,13 @@ from __future__ import annotations
 
 import argparse
 from collections import OrderedDict
+import csv
 import math
+from pathlib import Path
 import time
 import tkinter as tk
 
-from PIL import ImageTk
+from PIL import Image, ImageOps, ImageTk
 
 import graph
 
@@ -21,7 +23,7 @@ def tilt_at(elapsed: float, cycle_seconds: float = 8.0) -> float:
     return (elapsed / cycle_seconds * 360.0) % 360.0
 
 
-def render_leaf(size: int, tilt: float, namespace=None):
+def render_leaf(size: int, tilt: float, namespace=None, transparent=False):
     """graphの葉を任意の傾きで描く。ウィンドウなしでも利用できる。"""
     ns = vars(graph) if namespace is None else namespace
     surface = ns["SmoothCanvas"](size, size, "white", ns["ANTIALIAS_SCALE"])
@@ -30,7 +32,36 @@ def render_leaf(size: int, tilt: float, namespace=None):
     ns["draw_leaf"](surface, size/2, size/2, scale=(size-16)/230,
                     rotation=0, tilt=tilt, tip_curl=curl, root_curl=ROOT_CURL*facing,
                     depth_curve=DEPTH_CURVE)
-    return surface.resized_image()
+    image = surface.resized_image()
+    if transparent:
+        # 白背景をアルファに変換。縁の半透明画素も黒にして白い縁を防ぐ。
+        result = Image.new("RGBA", image.size, (0, 0, 0, 0))
+        result.putalpha(ImageOps.invert(image.convert("L")))
+        return result
+    return image
+
+
+def export_frames(output, frames=60, size=256, cycle_seconds=8.0):
+    """一周を等分して保存する。360度は0度と重複するため含めない。"""
+    if frames < 1 or size < 24 or not math.isfinite(cycle_seconds) or cycle_seconds <= 0:
+        raise ValueError("frames>=1, size>=24 and a positive finite cycle duration are required")
+    output = Path(output)
+    output.mkdir(parents=True, exist_ok=True)
+    paths = []
+    rows = []
+    for index in range(frames):
+        elapsed = index*cycle_seconds/frames
+        angle = index*360.0/frames
+        filename = f"leaf_{index:03d}.png"
+        path = output/filename
+        render_leaf(size, angle, transparent=True).save(path)
+        paths.append(path)
+        rows.append((index, filename, angle, elapsed, cycle_seconds/frames))
+    with (output/"frames.csv").open("w", newline="", encoding="utf-8") as file:
+        writer = csv.writer(file)
+        writer.writerow(("frame", "filename", "angle_degrees", "time_seconds", "duration_seconds"))
+        writer.writerows(rows)
+    return paths
 
 
 class LeafAnimation:
@@ -97,11 +128,23 @@ def main():
                         help="Seconds per complete rotation (default: 8).")
     parser.add_argument("--width", type=int, default=800)
     parser.add_argument("--height", type=int, default=600)
+    parser.add_argument("--export", action="store_true", help="Export transparent PNG frames without opening a window.")
+    parser.add_argument("--frames", type=int, default=60, help="Number of exported frames (default: 60).")
+    parser.add_argument("--size", type=int, default=256, help="Exported PNG width and height (default: 256).")
+    parser.add_argument("--output", type=Path,
+                        default=Path(__file__).resolve().parent/"assets"/"leaf",
+                        help="PNG export directory.")
     args = parser.parse_args()
     if not math.isfinite(args.cycle_seconds) or args.cycle_seconds <= 0:
         parser.error("cycle-seconds must be positive and finite")
     if args.width < 200 or args.height < 200:
         parser.error("width and height must be at least 200")
+    if args.frames < 1 or args.size < 24:
+        parser.error("frames must be at least 1 and size must be at least 24")
+    if args.export:
+        paths = export_frames(args.output, args.frames, args.size, args.cycle_seconds)
+        print(f"Exported {len(paths)} transparent PNG frames ({args.size}x{args.size}) to {args.output}")
+        return
     root = tk.Tk()
     root.title("Leaf")
     root.geometry(f"{args.width}x{args.height}")

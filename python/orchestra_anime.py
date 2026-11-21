@@ -13,11 +13,14 @@ import tkinter as tk
 
 # このスクリプトの場所を基準にするため、別の作業フォルダからも実行できる。
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(PROJECT_ROOT / "python"))
+if str(PROJECT_ROOT / "python") not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT / "python"))
 
 import graph
 from scenes import SCENES
 from scenes.common import BACKGROUND
+from leaf_loop import LeafLoop
+from display_reload import load_display_modules, restore_modules
 from PIL import Image, ImageOps, ImageTk
 
 # graph.pyで調整した名前付き関数を、楽器ごとに指定する。
@@ -117,6 +120,9 @@ class InstrumentWindow:
         root.minsize(200, 200)
         self.canvas = tk.Canvas(root, bg=BACKGROUND, highlightthickness=0)
         self.canvas.pack(fill="both", expand=True)
+        self.leaf_loop = LeafLoop()
+        # 再生中の初回変換による停止を避けるため、起動時に全コマを用意する。
+        self.leaf_loop.prepare(.045*min(args.width, args.height), self.canvas)
         # プレビューは表示せず、保存時の再読み込みだけを利用する。
         graph_frame = tk.Frame(root, bg=graph.BACKGROUND)
         # graph.pyの名前付き描画関数を使う。500msごとの再読み込み・
@@ -125,6 +131,8 @@ class InstrumentWindow:
         self.graph_preview = graph.LivePreview(root, graph_frame, graph.__file__)
         root.protocol("WM_DELETE_WINDOW", self.close)
         root.bind("<Escape>", lambda _: self.close())
+        root.bind("<KeyPress-r>", lambda _: self.reload_display())
+        root.bind("<KeyPress-R>", lambda _: self.reload_display())
         for number in self.scenes:
             root.bind(str(number), lambda event, selected=number: self.select_scene(selected))
         if args.demo:
@@ -138,6 +146,51 @@ class InstrumentWindow:
         if number in self.scenes:
             self.current_scene = number
             print(f"[scene] {number}", flush=True)
+
+    def reload_display(self):
+        """Rで表示コードとPNGを読み直す。録音スレッドと識別結果は維持する。"""
+        previous_modules = None
+        old_class = self.__class__
+        old_state = self.__dict__.copy()
+        preview_state = (self.graph_preview.namespace, self.graph_preview.last_source)
+        try:
+            modules, previous_modules = load_display_modules()
+            new_graph = modules["graph"]
+            # 描画と素材を検証してから、現在の表示へ反映する。
+            new_graph.render_image(320, 240)
+            player = modules["leaf_loop"].LeafLoop()
+            player.prepare(.045*min(self.canvas.winfo_width(), self.canvas.winfo_height()), self.canvas)
+            app = modules["_orchestra_anime_live"]
+            self.__class__ = app.InstrumentWindow
+            self.scenes = modules["scenes"].SCENES
+            self.instruments = app.INSTRUMENTS
+            self.graph_shapes = app.GRAPH_SHAPES
+            self.polygon_points = app.polygon_points
+            self.leaf_loop = player
+            self.graph_preview.namespace = vars(new_graph)
+            self.graph_preview.last_source = Path(new_graph.__file__).read_bytes()
+            self.scene_states = {}
+            self.graph_masks = {}
+            self.graph_photos = []
+            self.graph_photo_cache = OrderedDict()
+            self.graph_items = {}
+            self.graph_errors = set()
+            self.graph_revision = None
+            self.scene1_overlay = None
+            self.drawn_scene = None
+            now = time.monotonic()
+            fresh = now-self.last_result < max(8., self.args.window_seconds*3)
+            self.draw(now, fresh)
+            print("[reload] Updated scenes, graph, leaf PNGs and display code.", flush=True)
+        except Exception as error:
+            if previous_modules is not None:
+                restore_modules(previous_modules)
+            self.__class__ = old_class
+            self.__dict__.clear()
+            self.__dict__.update(old_state)
+            self.graph_preview.namespace, self.graph_preview.last_source = preview_state
+            self.drawn_scene = None
+            print(f"[reload] Update failed; keeping previous code: {type(error).__name__}: {error}", flush=True)
 
     def close(self):
         self.stop.set()
@@ -197,6 +250,10 @@ class InstrumentWindow:
         """graphの図形を滑らかに描き、識別状態の色を付けて表示する。"""
         name, base_radius = GRAPH_SHAPES[key]
         self.draw_graph_shape(name, x, y, radius, color, base_radius)
+
+    def draw_leaf_loop(self, x, y, radius, elapsed, phase, item_key, rotation=0.):
+        photo = self.leaf_loop.photo(radius, elapsed, phase, self.canvas, rotation=rotation)
+        self.place_graph_photo(photo, x, y, item_key)
 
     def draw_graph_shape(self, name, x, y, radius, color="black", base_radius=130, item_key=None):
         """シーンからgraphの名前付き関数を直接選び、描画する。"""
