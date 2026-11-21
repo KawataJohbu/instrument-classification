@@ -136,7 +136,8 @@ def draw_bubble(canvas, x, y, radius=80, variant=0):
                           outline="black", width=radius*weight)
 
 
-def draw_leaf(canvas, x, y, scale=1.0, rotation=0, tilt=0):
+def draw_leaf(canvas, x, y, scale=1.0, rotation=0, tilt=0, tip_curl=0, root_curl=0,
+              depth_curve=0):
     """rotationは画面内の回転、tiltは葉の長軸まわりの傾き（90°で真横）。"""
     # 葉の根元から先端への方向と、それに直角な方向。
     base_x, base_y = x - 65*scale, y + 65*scale
@@ -150,8 +151,18 @@ def draw_leaf(canvas, x, y, scale=1.0, rotation=0, tilt=0):
 
     def point(t, sideways=0):
         sideways *= projected_width
-        px = base_x + direction[0]*length*t + normal[0]*sideways - x
-        py = base_y + direction[1]*length*t + normal[1]*sideways - y
+        # 根元は保ち、先端に近い部分だけ短くして小さく反らせる。
+        curl = tip_curl * max(0, t)**3
+        along = length*(t-curl)
+        sideways += length*curl*.25
+        # 根元から茎へ向かうほど、横へ緩やかに曲げる。
+        root_bend = max(0, 1-t/.40)**2
+        sideways += length*root_curl*root_bend
+        # 奥行き方向の反りを投影する。正面では隠れ、真横で最も見える。
+        # sin(tilt)の符号で、反対側から見たときの曲がる向きも反転する。
+        sideways += length*depth_curve*math.sin(math.radians(tilt))*math.sin(math.pi*t)
+        px = base_x + direction[0]*along + normal[0]*sideways - x
+        py = base_y + direction[1]*along + normal[1]*sideways - y
         return (x + px*math.cos(angle) - py*math.sin(angle),
                 y + px*math.sin(angle) + py*math.cos(angle))
 
@@ -163,7 +174,10 @@ def draw_leaf(canvas, x, y, scale=1.0, rotation=0, tilt=0):
             t = i/30
             outline.extend(point(t, side * 43*scale * math.sin(math.pi*t)))
     canvas.create_polygon(*outline, fill="black", outline="")
-    canvas.create_line(*point(-.16), *point(.10), fill="black", width=3*scale)
+    stem = []
+    for step in range(21):
+        stem.extend(point(-.16 + .26*step/20))
+    canvas.create_line(*stem, fill="black", width=3*scale)
 
 
 def cloud1(canvas, x, y, scale=1.0):

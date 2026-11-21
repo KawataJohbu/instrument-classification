@@ -11,7 +11,7 @@ LEAVES = ("leaf_front", "leaf_diagonal", "leaf_side", "leaf_back")
 CLOUDS = ("cloud1", "cloud3", "cloud2")
 BUBBLES = (("bubbleS", 25), ("bubbleM", 40), ("bubbleL", 55), ("bubbleXL", 75))
 INTERVALS = {"horn": 10.0, "cello": 1.5, "flute": 1.2}
-PREVIEW_ALL = True  # 仮確認用。Falseに戻すとスコアに応じて出現する。
+PREVIEW_ALL = False  # 検知された楽器に対応する図形だけを出現させる。
 NAMES = {"horn": "\u30db\u30eb\u30f3", "flute": "\u30d5\u30eb\u30fc\u30c8", "cello": "\u30c1\u30a7\u30ed"}
 
 
