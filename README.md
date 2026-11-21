@@ -16,7 +16,7 @@ pillow　など
 ### リアルタイム計測コード
 
 ```terminal
-\python\orchestra_live.py  
+py .\python\orchestra_live.py  
 ```
 
 
@@ -29,16 +29,17 @@ py .\python\orchestra_anime.py
 
 ### 第１楽章
 **scene1~5を使用**  
-**scene1：(orchestra_anime実行中に1を押す)**  
-![scene1図](./images/scene1.png)  
-**scene2：(orchestra_anime実行中に2を押す)**  
+  
+**scene1イメージ：(orchestra_anime実行中に1を押す)**  
+![scene1-1図](./images/scene1-1.png)  
+![scene1-2図](./images/scene1-2.png)  
+**scene2イメージ：(orchestra_anime実行中に2を押す)**  
 ![scene2図](./images/scene2.png)  
-**scene3：(orchestra_anime実行中に3を押す)**  
+**scene3イメージ：(orchestra_anime実行中に3を押す)**  
 ![scene3図](./images/scene3.png)  
-**scene4：(orchestra_anime実行中に4を押す)**  
-![scene4図](./images/scene4.png)  
-**scene5：(orchestra_anime実行中に5を押す)**  
-![scene5図](./images/scene5.png)  
+**scene4イメージ：(orchestra_anime実行中に4を押す)**  
+![scene4図](./images/scene4.png)   
+
 
 ### 第４楽章
 
@@ -50,6 +51,7 @@ py .\python\orchestra_anime.py
 オーボエのスコアが全然出てこない⏩️../python/orchestra.pyにあるDEFAULT_MAX_SECONDSを120に変更することで解消できた。  
 フルートとヴァイオリンは中音だとしっかり認識できるようになった  
 チェロも認識はできているがヴァイオリンのほうがスコアが大きく出る傾向にある  
+オーボエとフルートが混同してしまっている時がある  
 ＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿＿
 
 ・改善点  
